@@ -14,25 +14,51 @@ const call = async (name: string, args: Record<string, unknown>) => {
   assert.ok(!res.isError, `${name} failed: ${JSON.stringify(res.content)}`);
   return res.structuredContent as any;
 };
+const fails = async (name: string, args: Record<string, unknown>) => {
+  const res = await client.callTool({ name, arguments: args });
+  assert.equal(res.isError, true, `${name} should fail for ${JSON.stringify(args)}`);
+};
+const log = (label: string, r: any) =>
+  console.error(`${label}: ${r.count} slots, first ${r.slots[0].date} ${r.slots[0].price_eur}€ at ${r.slots[0].clinic}`);
 
 const { tools } = await client.listTools();
-assert.deepEqual(tools.map(t => t.name).sort(), ["cup24_get_availability", "cup24_search_cities", "cup24_search_services"]);
+assert.deepEqual(tools.map(t => t.name).sort(), [
+  "cup24_get_availability", "cup24_get_service_info", "cup24_get_slot_times", "cup24_search", "cup24_search_cities"
+]);
 
-const { services } = await call("cup24_search_services", { query: "ecografia addome completo" });
 const { cities } = await call("cup24_search_cities", { query: "firenze" });
-assert.ok(services.length > 0 && cities.some((c: any) => c.slug === "firenze"));
+assert.ok(cities.some((c: any) => c.slug === "firenze"));
 
-const byPrice = await call("cup24_get_availability", { service_id: services[0].id, city: "firenze", sort: "price" });
-assert.ok(byPrice.slots.length > 0, "Florence should have availability for the first match");
-const prices = byPrice.slots.map((s: any) => s.price_eur);
-assert.ok(prices.every((p: number) => p > 0), "every slot has a price");
-console.error(`${byPrice.service}: ${byPrice.count} slots, cheapest ${prices[0]}€ at ${byPrice.slots[0].clinic}`);
+const eco = (await call("cup24_search", { query: "ecografia addome completo" })).services[0];
+const byPrice = await call("cup24_get_availability", { service_ids: [eco.id], city: "firenze", sort: "price" });
+assert.ok(byPrice.slots.every((s: any) => s.price_eur > 0 && s.slot_id), "every slot has a price and a slot_id");
+log("Ecografia, by price", byPrice);
+
+const { days } = await call("cup24_get_slot_times", { slot_id: byPrice.slots[0].slot_id, days: 2 });
+assert.ok(days.length >= 1 && days[0].times.length >= 1, "the slot has bookable times");
+console.error(`Times at ${days[0].clinic}: ${days.map((d: any) => `${d.date} ${d.times.slice(0, 3).join(" ")}`).join(" | ")}`);
+
+const info = await call("cup24_get_service_info", { service_id: eco.id });
+assert.ok(info.faq.length > 0 && info.prices_by_city.length > 0);
+
+const labs = (await call("cup24_search", { query: "emocromo" })).services;
+const emocromo = labs.find((s: any) => s.combinable && !s.package);
+const glicemia = (await call("cup24_search", { query: "glicemia" })).services.find((s: any) => s.combinable && !s.package);
+log("Emocromo + glicemia", await call("cup24_get_availability", { service_ids: [emocromo.id, glicemia.id], city: "firenze" }));
+
+const pkg = (await call("cup24_search", { query: "check-up" })).services.find((s: any) => s.package);
+log(pkg.name, await call("cup24_get_availability", { service_ids: [pkg.id], city: "firenze" }));
+assert.ok((await call("cup24_get_service_info", { service_id: pkg.id })).includes.length > 0, "a package lists its tests");
+
+log("Clinic", await call("cup24_get_availability", { clinic_id: byPrice.slots[0].clinic_id }));
+const doctor = (await call("cup24_search", { query: "rossi" })).doctors[0];
+await call("cup24_get_availability", { doctor_id: doctor.id });
 
 // Invalid input must come back as a tool error the model can read
-const bad = await client.callTool({ name: "cup24_get_availability", arguments: { service_id: "../etc", city: "firenze" } });
-assert.equal(bad.isError, true);
-const missing = await client.callTool({ name: "cup24_get_availability", arguments: { service_id: "57d1785cdb86a", city: "nonesiste" } });
-assert.equal(missing.isError, true);
+await fails("cup24_get_availability", { service_ids: ["../etc"], city: "firenze" });
+await fails("cup24_get_availability", { service_ids: [eco.id], city: "nonesiste" });
+await fails("cup24_get_availability", { service_ids: [eco.id] });
+await fails("cup24_get_slot_times", { slot_id: "000000000000000000000000" });
 
 await client.close();
 console.error("Smoke test passed");

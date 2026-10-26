@@ -1,6 +1,6 @@
 {
   "name": "cup24-mcp-server",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unofficial MCP server for cup24.it: search private healthcare services in Italy and compare real-time availability and prices",
   "license": "MIT",
   "author": "Niccolò Salvini",

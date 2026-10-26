@@ -4,18 +4,22 @@ Server [MCP](https://modelcontextprotocol.io) **non ufficiale** per [cup24.it](h
 
 > «Trovami l'ecografia addome completo più economica a Firenze questa settimana»
 > «Chi ha posto domani mattina per una visita cardiologica a Milano?»
+> «Emocromo e glicemia insieme, dove costa meno a Roma?»
+> «Come mi preparo a una risonanza e quanto costa di solito a Bologna?»
 
-Il server è **solo in lettura**: cerca e confronta disponibilità e prezzi in tempo reale. La prenotazione resta sul sito: ogni risultato ha un `booking_url` alla pagina della struttura.
+Il server è **solo in lettura**: cerca e confronta disponibilità, orari e prezzi in tempo reale. La prenotazione resta sul sito, perché chiede dati personali e pagamento: ogni risultato ha un `booking_url` alla pagina della struttura.
 
-*English: unofficial, read-only MCP server for cup24.it, the Italian private-healthcare booking site. It searches services and cities and returns real-time availability, prices and clinics; booking stays on the website.*
+*English: unofficial, read-only MCP server for cup24.it, the Italian private-healthcare booking site. It searches services, clinics and doctors and returns real-time availability, bookable times, prices and service information; booking stays on the website.*
 
 ## Strumenti
 
 | Strumento | Cosa fa |
 |---|---|
-| `cup24_search_services` | Cerca una prestazione per nome (es. `ecografia addome`) e ne restituisce l'id |
+| `cup24_search` | Cerca per nome prestazioni (esami, visite, analisi, pacchetti check-up), strutture e medici, e ne restituisce gli id |
 | `cup24_search_cities` | Cerca una città o una zona (es. `firenze`, `firenze-zona-campo-di-marte`) e ne restituisce lo slug |
-| `cup24_get_availability` | Disponibilità e prezzi di una prestazione in una città: data, orari liberi, prezzo (anche scontato), struttura, indirizzo, coordinate, distanza dal centro, medico e link per prenotare. Ordina per `date`, `price` o `distance`, filtra per `oggi`, `domani`, `settimana`, `prossima-settimana`, `prossimo-mese`, e pagina in ordine cronologico |
+| `cup24_get_availability` | Disponibilità e prezzi: di una prestazione in una città, di più analisi di laboratorio prenotate insieme, di una struttura o di un medico. Per ogni struttura e giorno: orari liberi, prezzo (anche scontato), voto e recensioni, indirizzo, coordinate, distanza, medico, `slot_id` e link per prenotare. Ordina per `date`, `price` o `distance`, filtra per `oggi`, `domani`, `settimana`, `prossima-settimana`, `prossimo-mese`, e pagina in ordine cronologico |
+| `cup24_get_slot_times` | Gli orari prenotabili di uno slot giorno per giorno, come nel riquadro «Scegli data e ora» del sito; per le analisi, la fascia oraria dei prelievi |
+| `cup24_get_service_info` | La scheda di una prestazione: a cosa serve, preparazione, digiuno, durata e altre FAQ, prezzo minimo e massimo nelle principali città, e per i pacchetti l'elenco delle analisi incluse |
 
 ## Installazione
 
@@ -65,18 +69,35 @@ cup24.it non ha un'API pubblica documentata. Il server usa gli stessi endpoint c
 
 | Endpoint | Uso sul sito |
 |---|---|
-| `GET https://api2.cup24.it/v2/search/suggest?term=…` | Autocompletamento della ricerca: prestazioni (`type: "service"`), strutture e medici |
+| `GET https://api2.cup24.it/v2/search/suggest?term=…` | Autocompletamento della ricerca: prestazioni (`type: "service"`), strutture (`sede`) e medici (`doctor`). I pacchetti check-up hanno id che iniziano con `P` |
 | `GET https://api2.cup24.it/v2/search/suggestcity?term=…` | Autocompletamento di città e zone, con lo slug usato negli URL |
-| `GET https://cup24.it/c/{città}/{id prestazione}/` | Pagina dei risultati, generata dal server in HTML |
-| `POST` sulla stessa URL, form `page`, `when`, `sort` (`sort:price`, `sort:where`) | Pulsante «Altre date», filtri per data e ordinamento |
+| `GET https://cup24.it/c/{città}/{id prestazione}/` | Risultati di una prestazione in una città, generati dal server in HTML |
+| `GET https://cup24.it/search/{id},{id}/` con cookie `lat`, `lng` | Risultati di più analisi di laboratorio prenotate insieme («Componi il tuo esame») |
+| `GET https://cup24.it/sede/{id}[/{id prestazione}]`, `GET https://cup24.it/medico/{id}` | Disponibilità di una struttura o di un medico, con le stesse card |
+| `POST` su ognuna di queste URL, form `page`, `when`, `sort` (`sort:price`, `sort:where`) | Pulsante «Altre date», filtri per data e ordinamento |
+| `POST https://cup24.it/messages/options` con `id` dello slot | Riquadro «Scegli data e ora»: risposta JSON con l'HTML degli orari del giorno |
+| `POST` sulla stessa URL con `who`, `what`, `where`, `when`, `mode=next` | Pulsante «Successivo»: il giorno disponibile seguente della stessa agenda; `no_slot: true` quando non ce ne sono più |
+| `GET https://cup24.it/prestazione/{id}/` | Scheda della prestazione: FAQ in JSON-LD e tabella dei prezzi minimi e massimi per città |
+| `GET https://cup24.it/what/{id pacchetto}/package_list` | Analisi incluse in un pacchetto check-up, in JSON |
 
-Nella pagina dei risultati ogni card è una struttura in un giorno: gli orari liberi sono nell'attributo `title="Orari: …"`, mentre indirizzo, coordinate e data sono in un oggetto JSON passato a `window.slotAddressPoints.push(…)`. Il server legge questi dati; se il sito cambia struttura, il parser va aggiornato (`npm test` lo verifica su una copia ridotta di una pagina reale, `npm run smoke` sul sito vero).
+Nella pagina dei risultati ogni card è una struttura in un giorno: gli orari liberi sono nell'attributo `title="Orari: …"`, indirizzo, coordinate e data sono in un oggetto JSON passato a `window.slotAddressPoints.push(…)`, e l'id dello slot è nel `data-id` del pulsante «Scegli orario e Prenota». Il server legge questi dati; se il sito cambia struttura, il parser va aggiornato (`npm test` lo verifica su copie ridotte di risposte reali, `npm run smoke` sul sito vero).
+
+### La prenotazione (non implementata)
+
+Ricostruita dal codice del sito e osservata fino alla scelta dell'orario, senza confermare:
+
+1. «Scegli orario e Prenota» apre il riquadro degli orari (`/messages/options`); scegliere un orario non manda richieste.
+2. «Conferma» manda `POST /cart/update` con `slotid` e `freeslotid` (l'orario scelto) e porta a `/cart/checkout`. Per le analisi passa anche `whatids`.
+3. Il checkout chiede nome, email, telefono e codice fiscale, controlla l'utente (`api2…/v2/check/user_behavior`) e la disponibilità presso la struttura (`/cart/check_availability`), poi il pagamento: carta, PayPal, Stripe (Google Pay, Apple Pay), Scalapay, pagamento in sede, coupon o credito welfare.
+4. Dopo l'ordine il sito controlla lo stato (`/order/recent_status`); spostamenti e rimborsi passano da `/lib/reschedule.php` e `/lib/refund.php`.
+
+Il server si ferma prima del passo 2: aggiungere al carrello occupa l'orario per altri pazienti, e i passi successivi richiedono dati personali e pagamento.
 
 ## Sviluppo
 
 ```bash
 npm run build   # compila in dist/
-npm test        # test del parser, offline
+npm test        # test dei parser, offline
 npm run smoke   # avvia il server e chiama ogni strumento sul sito reale
 ```
 
