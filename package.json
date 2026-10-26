@@ -1,0 +1,33 @@
+{
+  "name": "cup24-mcp-server",
+  "version": "0.1.0",
+  "description": "Unofficial MCP server for cup24.it: search private healthcare services in Italy and compare real-time availability and prices",
+  "license": "MIT",
+  "author": "Niccolò Salvini",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NiccoloSalvini/cup24-mcp-server.git"
+  },
+  "keywords": ["mcp", "model-context-protocol", "cup24", "cupsolidale", "sanita", "healthcare", "italy"],
+  "type": "module",
+  "bin": { "cup24-mcp-server": "dist/index.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "start": "node dist/index.js",
+    "test": "tsx --test test/*.test.ts",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "engines": { "node": ">=20.3" },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  }
+}
