@@ -6,6 +6,7 @@ Server [MCP](https://modelcontextprotocol.io) **non ufficiale** per [cup24.it](h
 > «Chi ha posto domani mattina per una visita cardiologica a Milano?»
 > «Emocromo e glicemia insieme, dove costa meno a Roma?»
 > «Come mi preparo a una risonanza e quanto costa di solito a Bologna?»
+> «Ecco la foto dell'impegnativa: dove faccio tutto a Firenze con meno uscite possibili, entro il 15?»
 
 Il server è **solo in lettura**: cerca e confronta disponibilità, orari e prezzi in tempo reale. La prenotazione resta sul sito, perché chiede dati personali e pagamento: ogni risultato ha un `booking_url` alla pagina della struttura.
 
@@ -20,6 +21,17 @@ Il server è **solo in lettura**: cerca e confronta disponibilità, orari e prez
 | `cup24_get_availability` | Disponibilità e prezzi: di una prestazione in una città, di più analisi di laboratorio prenotate insieme, di una struttura o di un medico. Per ogni struttura e giorno: orari liberi, prezzo (anche scontato), voto e recensioni, indirizzo, coordinate, distanza, medico, `slot_id` e link per prenotare. Ordina per `date`, `price` o `distance`, filtra per `oggi`, `domani`, `settimana`, `prossima-settimana`, `prossimo-mese`, e pagina in ordine cronologico |
 | `cup24_get_slot_times` | Gli orari prenotabili di uno slot giorno per giorno, come nel riquadro «Scegli data e ora» del sito; per le analisi, la fascia oraria dei prelievi |
 | `cup24_get_service_info` | La scheda di una prestazione: a cosa serve, preparazione, digiuno, durata e altre FAQ, prezzo minimo e massimo nelle principali città, e per i pacchetti l'elenco delle analisi incluse |
+| `cup24_plan_visits` | Pianifica più prestazioni insieme, per esempio tutte le voci di un'impegnativa. Restituisce fino a tre piani: **meno uscite** (stessa struttura e stesso giorno per più voci possibili, con orari suggeriti a 15 minuti l'uno dall'altro), **più economico** e **prima possibile**, ciascuno con totale, uscite e link per prenotare. Le analisi si fanno con un unico prelievo a prezzo combinato. Filtra per data massima e distanza |
+
+### Dalla ricetta alla prenotazione
+
+Dai all'assistente la foto o il testo dell'impegnativa. Per ogni voce cerca la prestazione con `cup24_search` e ti mostra l'abbinamento da confermare. Poi chiama `cup24_plan_visits`, che:
+
+1. cerca ogni voce in città, ordinata per data, prezzo e distanza, per sapere quali strutture la offrono;
+2. legge giorno per giorno i calendari delle strutture che offrono più voci, per trovare uscite che ne coprono diverse nello stesso giorno;
+3. costruisce i piani scegliendo ogni volta la struttura e il giorno che coprono più voci rimaste.
+
+Le analisi stanno quasi sempre in sedi di laboratorio separate, quindi con le analisi «tutto in un'uscita» è raro. L'abbinamento ricetta → prestazione resta il punto delicato: l'assistente deve sempre fartelo confermare. Gli orari suggeriti presumono 15 minuti per appuntamento.
 
 ## Installazione
 
