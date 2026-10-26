@@ -98,12 +98,19 @@ Il server resta in sola lettura: prenotare richiede l'account dell'utente, il su
 
 Sul bundle intero (`index.js`, 1,2 MB minificati) l'analisi semantica di REA esaurisce la memoria anche con 8 GB. Il motivo è che tiene in uso più di 8 GB per un unico file da circa 312.000 nodi di sintassi. `scripts/rea-split.mjs` divide il bundle nei moduli webpack e il blocco d'ingresso in pezzi da circa 25 KB, separando il codice di cup24 (`app/`) dalle librerie (`vendor/`):
 
+REA però non collega un listener alla funzione che lo gestisce, né le chiamate `Pi.metodo()` alla loro definizione, e i suoi semi di tipo stringa non trovano gli endpoint. `scripts/rea-map.mjs` colma queste lacune usando solo l'evidenza di REA. Lancia REA un file alla volta (un'unica esecuzione su tutti i file supera il budget di risultati di REA), poi unisce i suoi nodi:
+- **listener → funzione gestore:** il nodo `function` che segue il selettore;
+- **gestore → chiamate:** i nodi `call-site` nel suo intervallo;
+- **chiamate → definizioni:** `Pi.*` e le funzioni minificate con nome unico, anche tra file diversi;
+- **chiamate → endpoint:** `$.ajax`, `fetch`, XHR e i riquadri caricati da `/messages/…`.
+
 ```bash
 node scripts/rea-split.mjs "$(curl -s https://cup24.it/ | grep -o 'https://cdn01[^"]*/js/index.js' | head -1)" /tmp/cup24-rea
-npx -y rea-agents@6.4.0 analyze-javascript-application /tmp/cup24-rea/app --max-heap-mb 4096
+node scripts/rea-map.mjs /tmp/cup24-rea/app                       # tutti gli eventi che arrivano a un endpoint
+node scripts/rea-map.mjs /tmp/cup24-rea/app --find /lib/refund.php # da un endpoint ai click che lo usano
 ```
 
-Così l'analisi di `app/` finisce in pochi secondi. Se REA segnala che un file «exceeds the parent's remaining result budget», analizza quel file da solo: il budget vale per l'intera esecuzione. Carrello, annullamento e checkout stanno in `entry-07.js` (le funzioni `Pi.*`) ed `entry-09.js` (i gestori dei click).
+Ci vogliono circa 30 secondi. Tutti i file del codice di cup24 risultano «complete», senza troncamenti né limiti di memoria. La mappa completa finisce in `app/rea-map.json` e l'evidenza di REA resta in cache accanto a ogni file (`*.rea.json`). Esempio: `--find /lib/refund.php` restituisce `click ".removeOrder"` e il pulsante «Cancella prenotazione», entrambi tramite `Pi.makeRefund`.
 
 ## Sviluppo
 
