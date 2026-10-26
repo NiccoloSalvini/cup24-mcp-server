@@ -8,10 +8,22 @@
     "type": "git",
     "url": "git+https://github.com/NiccoloSalvini/cup24-mcp-server.git"
   },
-  "keywords": ["mcp", "model-context-protocol", "cup24", "cupsolidale", "sanita", "healthcare", "italy"],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "cup24",
+    "cupsolidale",
+    "sanita",
+    "healthcare",
+    "italy"
+  ],
   "type": "module",
-  "bin": { "cup24-mcp-server": "dist/index.js" },
-  "files": ["dist"],
+  "bin": {
+    "cup24-mcp-server": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "prepare": "tsc",
@@ -19,12 +31,15 @@
     "test": "tsx --test test/*.test.ts",
     "smoke": "tsx scripts/smoke.ts"
   },
-  "engines": { "node": ">=20.3" },
+  "engines": {
+    "node": ">=20.3"
+  },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",
     "zod": "^4.2.0"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.11",
     "@modelcontextprotocol/client": "^2.4.0",
     "@types/node": "^24.0.0",
     "tsx": "^4.19.2",

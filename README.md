@@ -82,16 +82,28 @@ cup24.it non ha un'API pubblica documentata. Il server usa gli stessi endpoint c
 
 Nella pagina dei risultati ogni card è una struttura in un giorno: gli orari liberi sono nell'attributo `title="Orari: …"`, indirizzo, coordinate e data sono in un oggetto JSON passato a `window.slotAddressPoints.push(…)`, e l'id dello slot è nel `data-id` del pulsante «Scegli orario e Prenota». Il server legge questi dati; se il sito cambia struttura, il parser va aggiornato (`npm test` lo verifica su copie ridotte di risposte reali, `npm run smoke` sul sito vero).
 
-### La prenotazione (non implementata)
+### La prenotazione e l'annullamento (non implementati)
 
-Ricostruita dal codice del sito e osservata fino alla scelta dell'orario, senza confermare:
+Ricostruiti dal codice del sito con REA e provati una volta su un account reale (un emocromo con pagamento in sede, prenotato e annullato subito il 26/10/2026):
 
-1. «Scegli orario e Prenota» apre il riquadro degli orari (`/messages/options`); scegliere un orario non manda richieste.
-2. «Conferma» manda `POST /cart/update` con `slotid` e `freeslotid` (l'orario scelto) e porta a `/cart/checkout`. Per le analisi passa anche `whatids`.
-3. Il checkout chiede nome, email, telefono e codice fiscale, controlla l'utente (`api2…/v2/check/user_behavior`) e la disponibilità presso la struttura (`/cart/check_availability`), poi il pagamento: carta, PayPal, Stripe (Google Pay, Apple Pay), Scalapay, pagamento in sede, coupon o credito welfare.
-4. Dopo l'ordine il sito controlla lo stato (`/order/recent_status`); spostamenti e rimborsi passano da `/lib/reschedule.php` e `/lib/refund.php`.
+1. «Prenota» o «Scegli orario e Prenota» apre il riquadro degli orari (`/messages/options`); per le analisi apre invece un riepilogo (`/messages/lab-options`). Scegliere un orario non manda richieste.
+2. «Conferma» svuota il carrello e manda `POST /cart/update` con `slotid` e `freeslotid` (per le analisi anche `whatid`), poi porta a `/cart/checkout`.
+3. Il checkout tiene l'orario per **10 minuti**. Prende nome, cognome, codice fiscale ed email dall'account e chiede il cellulare, l'accettazione delle condizioni e il consenso al trattamento dei dati sanitari. Pagamento: carta, Google Pay e Apple Pay (Stripe) o in sede. Il prezzo delle analisi include il costo del prelievo (es. 5 € + 4 €).
+4. «Conferma prenotazione» valida i dati (codice fiscale, maggiore età, email) e manda in `POST` all'`action` del modulo tutto `#formCheckout` (`client_data[bill_to][…]`, `client_data[patient][…]`). Se la risposta tarda, il sito interroga `/order/recent_status` ogni 5 secondi per 90 secondi, mentre la struttura conferma. La risposta può chiedere un OTP sul cellulare o rimandare a Stripe; altrimenti porta a `/order/review/{id}`. Il codice manda anche una copia del modulo a un endpoint di log (`kibanaeu.cup24.it:8080`).
+5. L'annullamento parte da «Le tue prenotazioni» (`/orders`): la X apre `/order/{id}/remove?u_info=…&jwt=…`, si sceglie un motivo (`company_decision`, `reservation_update`, `book_elsewhere`, `other` con testo) e si conferma due volte (`/messages/rimborso`). L'ultima conferma manda `POST /lib/refund.php` con `orderid`, `reason`, `reason_other`; la prenotazione passa a «Rimborsato» e arriva una mail. Gli spostamenti usano `/lib/reschedule.php`.
 
-Il server si ferma prima del passo 2: aggiungere al carrello occupa l'orario per altri pazienti, e i passi successivi richiedono dati personali e pagamento.
+Il server resta in sola lettura: prenotare richiede l'account dell'utente, il suo cellulare con OTP, consensi espliciti e il pagamento, e ogni prova occupa un orario reale e manda mail alla struttura.
+
+### Analizzare il sito con REA
+
+Sul bundle intero (`index.js`, 1,2 MB minificati) l'analisi semantica di REA esaurisce la memoria anche con 8 GB. Il motivo è che tiene in uso più di 8 GB per un unico file da circa 312.000 nodi di sintassi. `scripts/rea-split.mjs` divide il bundle nei moduli webpack e il blocco d'ingresso in pezzi da circa 25 KB, separando il codice di cup24 (`app/`) dalle librerie (`vendor/`):
+
+```bash
+node scripts/rea-split.mjs "$(curl -s https://cup24.it/ | grep -o 'https://cdn01[^"]*/js/index.js' | head -1)" /tmp/cup24-rea
+npx -y rea-agents@6.4.0 analyze-javascript-application /tmp/cup24-rea/app --max-heap-mb 4096
+```
+
+Così l'analisi di `app/` finisce in pochi secondi. Se REA segnala che un file «exceeds the parent's remaining result budget», analizza quel file da solo: il budget vale per l'intera esecuzione. Carrello, annullamento e checkout stanno in `entry-07.js` (le funzioni `Pi.*`) ed `entry-09.js` (i gestori dei click).
 
 ## Sviluppo
 
