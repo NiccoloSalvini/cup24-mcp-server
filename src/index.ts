@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
  * Unofficial MCP server for cup24.it (ex Cup Solidale): private healthcare availability and prices in Italy.
- * Read-only: it searches and compares, booking stays on the website.
+ * Read-only towards cup24.it: it searches, compares and watches for freed slots; booking stays on the website.
+ * `cup24-mcp-server check` runs the saved slot alerts once, for launchd or cron.
  */
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 import { getAvailability, getServiceInfo, getSlotTimes, search, searchCities, SORT, type Target, WHEN } from "./cup24.js";
+import { addWatch, checkWatches, listWatches, removeWatch, runCheck, WATCH_FILE } from "./watch.js";
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 const json = (data: Record<string, unknown>) => ({
@@ -18,7 +20,7 @@ const message = (text: string) => ({ content: [{ type: "text" as const, text }] 
 const serviceId = z.string().regex(/^P?[0-9a-f]{6,32}$/, "Use a service id returned by cup24_search");
 
 function createServer(): McpServer {
-  const server = new McpServer({ name: "cup24-mcp-server", version: "0.2.0" });
+  const server = new McpServer({ name: "cup24-mcp-server", version: "0.3.0" });
 
   server.registerTool(
     "cup24_search",
@@ -143,8 +145,82 @@ lab tests included. Use cup24_get_availability for real-time prices and dates.`,
     async ({ service_id }, ctx) => json(await getServiceInfo(service_id, ctx.mcpReq.signal))
   );
 
+  // Watches only write a local file; openWorldHint because checks query cup24.it
+  const localWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
+
+  server.registerTool(
+    "cup24_watch_add",
+    {
+      title: "Create a slot alert",
+      description: `Watch for freed slots: "tell me when a cardiology visit in Florence frees up before the 10th, under 100 €".
+Saves the search locally and checks it right away. available_now lists what already matches: if it is not empty,
+there is no need to wait, tell the user. Later checks (cup24_watch_check, or the periodic \`cup24-mcp-server check\`)
+report only times that were not visible at the previous check, including times booked and then cancelled.
+Give at least one of before, max_price, max_km. Watches are stored in ${WATCH_FILE}.`,
+      inputSchema: z.strictObject({
+        service_ids: z.array(serviceId).min(1).max(10)
+          .describe("One service id from cup24_search, or several combinable lab tests to do together"),
+        city: z.string().regex(/^[a-z0-9-]{2,80}$/, "Use a slug returned by cup24_search_cities")
+          .describe("City or zone slug from cup24_search_cities, e.g. 'firenze'"),
+        before: z.iso.date().optional().describe("Only slots on or before this date, YYYY-MM-DD"),
+        max_price: z.number().positive().optional().describe("Only slots at or under this price in EUR"),
+        max_km: z.number().positive().max(200).optional().describe("Only clinics within this distance from the city (or zone) centre"),
+        label: z.string().trim().min(1).max(80).optional().describe("Name for the alert; defaults to service and city")
+      }),
+      annotations: localWrite
+    },
+    async ({ label, ...criteria }, ctx) => {
+      if (criteria.before == null && criteria.max_price == null && criteria.max_km == null) {
+        throw new Error("Give at least one of before, max_price or max_km, otherwise every new slot would trigger the alert.");
+      }
+      return json(await addWatch(criteria, label, ctx.mcpReq.signal));
+    }
+  );
+
+  server.registerTool(
+    "cup24_watch_list",
+    {
+      title: "List slot alerts",
+      description: "The saved slot alerts with their criteria, last check and how many matching times were visible then.",
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    },
+    async () => json({ watches: listWatches() })
+  );
+
+  server.registerTool(
+    "cup24_watch_remove",
+    {
+      title: "Remove a slot alert",
+      description: "Deletes a saved slot alert by its id from cup24_watch_list.",
+      inputSchema: z.strictObject({ id: z.string().min(1).max(40).describe("Alert id from cup24_watch_list") }),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }
+    },
+    async ({ id }) => {
+      removeWatch(id);
+      return message(`Alert ${id} removed.`);
+    }
+  );
+
+  server.registerTool(
+    "cup24_watch_check",
+    {
+      title: "Check slot alerts now",
+      description: `Checks the saved slot alerts now (all, or the given ids) and returns, per alert, the times that were not
+visible at the previous check, with clinic, date, price and booking_url. An alert that fails reports its error.`,
+      inputSchema: z.strictObject({
+        ids: z.array(z.string().min(1).max(40)).optional().describe("Alert ids to check; all when omitted")
+      }),
+      annotations: localWrite
+    },
+    async ({ ids }, ctx) => json({ results: await checkWatches(ids, ctx.mcpReq.signal) })
+  );
+
   return server;
 }
 
-serveStdio(createServer);
-console.error("cup24-mcp-server running on stdio");
+if (process.argv[2] === "check") {
+  await runCheck();
+} else {
+  serveStdio(createServer);
+  console.error("cup24-mcp-server running on stdio");
+}

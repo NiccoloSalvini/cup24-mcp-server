@@ -3,11 +3,20 @@
  * Run with: npm run build && npm run smoke
  */
 import { strict as assert } from "node:assert";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
-import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
+// Slot alerts go to a throwaway file, never to the user's own watches
+const watchDir = mkdtempSync(join(tmpdir(), "cup24-smoke-"));
 const client = new Client({ name: "smoke-test", version: "1.0.0" });
-await client.connect(new StdioClientTransport({ command: "node", args: ["dist/index.js"] }));
+await client.connect(new StdioClientTransport({
+  command: "node",
+  args: ["dist/index.js"],
+  env: { ...getDefaultEnvironment(), CUP24_WATCH_FILE: join(watchDir, "watches.json") }
+}));
 
 const call = async (name: string, args: Record<string, unknown>) => {
   const res = await client.callTool({ name, arguments: args });
@@ -23,7 +32,8 @@ const log = (label: string, r: any) =>
 
 const { tools } = await client.listTools();
 assert.deepEqual(tools.map(t => t.name).sort(), [
-  "cup24_get_availability", "cup24_get_service_info", "cup24_get_slot_times", "cup24_search", "cup24_search_cities"
+  "cup24_get_availability", "cup24_get_service_info", "cup24_get_slot_times", "cup24_search", "cup24_search_cities",
+  "cup24_watch_add", "cup24_watch_check", "cup24_watch_list", "cup24_watch_remove"
 ]);
 
 const { cities } = await call("cup24_search_cities", { query: "firenze" });
@@ -60,5 +70,16 @@ await fails("cup24_get_availability", { service_ids: [eco.id], city: "nonesiste"
 await fails("cup24_get_availability", { service_ids: [eco.id] });
 await fails("cup24_get_slot_times", { slot_id: "000000000000000000000000" });
 
+// Slot alert lifecycle: create (with an immediate check), recheck, list, remove
+const alert = await call("cup24_watch_add", { service_ids: [eco.id], city: "firenze", max_price: 80 });
+console.error(`Alert ${alert.watch.label}: ${alert.available_now.length} matching clinic-days now`);
+const recheck = await call("cup24_watch_check", {});
+assert.ok(Array.isArray(recheck.results[0].new_slots), "a check returns the new slots of each alert");
+assert.equal((await call("cup24_watch_list", {})).watches.length, 1);
+await call("cup24_watch_remove", { id: alert.watch.id });
+assert.equal((await call("cup24_watch_list", {})).watches.length, 0);
+await fails("cup24_watch_add", { service_ids: [eco.id], city: "firenze" }); // no criteria
+
 await client.close();
+rmSync(watchDir, { recursive: true });
 console.error("Smoke test passed");

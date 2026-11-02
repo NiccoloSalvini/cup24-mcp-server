@@ -6,8 +6,9 @@ Server [MCP](https://modelcontextprotocol.io) **non ufficiale** per [cup24.it](h
 > «Chi ha posto domani mattina per una visita cardiologica a Milano?»
 > «Emocromo e glicemia insieme, dove costa meno a Roma?»
 > «Come mi preparo a una risonanza e quanto costa di solito a Bologna?»
+> «Avvisami se si libera una visita cardiologica a Firenze prima del 10, sotto i 90 €»
 
-Il server è **solo in lettura**: cerca e confronta disponibilità, orari e prezzi in tempo reale. La prenotazione resta sul sito, perché chiede dati personali e pagamento: ogni risultato ha un `booking_url` alla pagina della struttura.
+Il server è **solo in lettura** verso cup24.it: cerca, confronta e sorveglia disponibilità, orari e prezzi in tempo reale. La prenotazione resta sul sito, perché chiede dati personali e pagamento: ogni risultato ha un `booking_url` alla pagina della struttura.
 
 *English: unofficial, read-only MCP server for cup24.it, the Italian private-healthcare booking site. It searches services, clinics and doctors and returns real-time availability, bookable times, prices and service information; booking stays on the website.*
 
@@ -20,6 +21,42 @@ Il server è **solo in lettura**: cerca e confronta disponibilità, orari e prez
 | `cup24_get_availability` | Disponibilità e prezzi: di una prestazione in una città, di più analisi di laboratorio prenotate insieme, di una struttura o di un medico. Per ogni struttura e giorno: orari liberi, prezzo (anche scontato), voto e recensioni, indirizzo, coordinate, distanza, medico, `slot_id` e link per prenotare. Ordina per `date`, `price` o `distance`, filtra per `oggi`, `domani`, `settimana`, `prossima-settimana`, `prossimo-mese`, e pagina in ordine cronologico |
 | `cup24_get_slot_times` | Gli orari prenotabili di uno slot giorno per giorno, come nel riquadro «Scegli data e ora» del sito; per le analisi, la fascia oraria dei prelievi |
 | `cup24_get_service_info` | La scheda di una prestazione: a cosa serve, preparazione, digiuno, durata e altre FAQ, prezzo minimo e massimo nelle principali città, e per i pacchetti l'elenco delle analisi incluse |
+| `cup24_watch_add` | Crea un avviso: una prestazione in una città, con almeno un limite tra data massima, prezzo massimo e distanza. Lo controlla subito e dice cosa corrisponde già (`available_now`) |
+| `cup24_watch_check` | Controlla gli avvisi adesso e restituisce solo gli orari che al controllo precedente non c'erano, anche quelli prenotati e poi disdetti |
+| `cup24_watch_list`, `cup24_watch_remove` | Elenca e cancella gli avvisi |
+
+### Avvisi sugli slot
+
+Gli avvisi sono salvati solo sul tuo computer, in `~/.cup24-mcp/watches.json` (si cambia con la variabile `CUP24_WATCH_FILE`). Il comando `check` li controlla tutti: stampa gli orari nuovi e, su macOS, mostra una notifica.
+
+```bash
+node /percorso/assoluto/cup24-mcp-server/dist/index.js check
+```
+
+Per farlo girare da solo ogni 30 minuti su macOS, salva questo file come `~/Library/LaunchAgents/it.cup24.watch.plist`, sostituendo i due percorsi (`which node` ti dice dov'è Node):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>it.cup24.watch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/percorso/assoluto/cup24-mcp-server/dist/index.js</string>
+    <string>check</string>
+  </array>
+  <key>StartInterval</key><integer>1800</integer>
+  <key>StandardOutPath</key><string>/tmp/cup24-watch.log</string>
+  <key>StandardErrorPath</key><string>/tmp/cup24-watch.log</string>
+</dict>
+</plist>
+```
+
+Poi attivalo con `launchctl load ~/Library/LaunchAgents/it.cup24.watch.plist`; lo togli con `launchctl unload` sullo stesso file. Su Linux basta una riga di cron: `*/30 * * * * node /percorso/assoluto/cup24-mcp-server/dist/index.js check`.
+
+Ogni controllo fa da 1 a 4 richieste a cup24.it per avviso: non scendere sotto i 15 minuti. Il controllo guarda le prime tre pagine di risultati in ordine di data (più la prima per prezzo, se c'è un prezzo massimo), quindi per le prestazioni molto richieste copre qualche giorno, per quelle rare settimane. Il computer deve essere acceso.
 
 ## Installazione
 
