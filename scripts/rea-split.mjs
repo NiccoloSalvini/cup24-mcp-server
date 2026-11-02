@@ -6,7 +6,7 @@
  * (jQuery, Leaflet, select2, intl-tel-input...) go to vendor/ so REA analyzes only cup24's own code in app/.
  *
  * Usage: node scripts/rea-split.mjs <bundle path or URL> <output dir> [chunk KB, default 25]
- * Then:  rea analyze-javascript-application <output dir>/app
+ * Then:  node scripts/rea-map.mjs <output dir>/app
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
