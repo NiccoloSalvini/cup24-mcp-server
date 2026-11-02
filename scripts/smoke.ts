@@ -23,7 +23,7 @@ const log = (label: string, r: any) =>
 
 const { tools } = await client.listTools();
 assert.deepEqual(tools.map(t => t.name).sort(), [
-  "cup24_get_availability", "cup24_get_service_info", "cup24_get_slot_times", "cup24_search", "cup24_search_cities"
+  "cup24_get_availability", "cup24_get_service_info", "cup24_get_slot_times", "cup24_plan_visits", "cup24_search", "cup24_search_cities"
 ]);
 
 const { cities } = await call("cup24_search_cities", { query: "firenze" });
@@ -51,6 +51,14 @@ log(pkg.name, await call("cup24_get_availability", { service_ids: [pkg.id], city
 assert.ok((await call("cup24_get_service_info", { service_id: pkg.id })).includes.length > 0, "a package lists its tests");
 
 log("Clinic", await call("cup24_get_availability", { clinic_id: byPrice.slots[0].clinic_id }));
+
+// A thyroid prescription: two services plus three lab tests drawn together
+const ecoTiroide = (await call("cup24_search", { query: "ecografia tiroidea" })).services[0];
+const endo = (await call("cup24_search", { query: "visita endocrinologica" })).services[0];
+const tsh = (await call("cup24_search", { query: "tsh" })).services.find((s: any) => s.combinable && !s.package);
+const plan = await call("cup24_plan_visits", { service_ids: [ecoTiroide.id, endo.id], lab_ids: [tsh.id, emocromo.id], city: "firenze" });
+assert.ok(plan.plans.length > 0 && plan.plans[0].visits.length === 3, "a plan covers every prescription item");
+for (const p of plan.plans) console.error(`Plan ${p.plan}: ${p.total_eur}€ in ${p.trips} trips, last ${p.last_date}`);
 const doctor = (await call("cup24_search", { query: "rossi" })).doctors[0];
 await call("cup24_get_availability", { doctor_id: doctor.id });
 

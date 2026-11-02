@@ -7,6 +7,7 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 import { getAvailability, getServiceInfo, getSlotTimes, search, searchCities, SORT, type Target, WHEN } from "./cup24.js";
+import { planVisits } from "./plan.js";
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 const json = (data: Record<string, unknown>) => ({
@@ -16,9 +17,11 @@ const json = (data: Record<string, unknown>) => ({
 const message = (text: string) => ({ content: [{ type: "text" as const, text }] });
 
 const serviceId = z.string().regex(/^P?[0-9a-f]{6,32}$/, "Use a service id returned by cup24_search");
+const city = z.string().regex(/^[a-z0-9-]{2,80}$/, "Use a slug returned by cup24_search_cities")
+  .describe("City or zone slug from cup24_search_cities, e.g. 'firenze'");
 
 function createServer(): McpServer {
-  const server = new McpServer({ name: "cup24-mcp-server", version: "0.2.0" });
+  const server = new McpServer({ name: "cup24-mcp-server", version: "0.3.0" });
 
   server.registerTool(
     "cup24_search",
@@ -81,8 +84,7 @@ Results come in chronological pages: when slots is not empty, call again with pa
       inputSchema: z.strictObject({
         service_ids: z.array(serviceId).min(1).max(10).optional()
           .describe("Service ids from cup24_search, e.g. ['57d1785cdb86a']; several only for combinable lab tests"),
-        city: z.string().regex(/^[a-z0-9-]{2,80}$/, "Use a slug returned by cup24_search_cities").optional()
-          .describe("City or zone slug from cup24_search_cities, e.g. 'firenze'"),
+        city: city.optional(),
         clinic_id: z.string().regex(/^[0-9a-f]{24}$/, "Use a clinic id from cup24_search or a slot").optional()
           .describe("Clinic id from cup24_search (clinics) or from a slot's clinic_id"),
         doctor_id: z.string().regex(/^[0-9a-f]{32}$/, "Use a doctor id returned by cup24_search").optional()
@@ -141,6 +143,40 @@ lab tests included. Use cup24_get_availability for real-time prices and dates.`,
       annotations: readOnly
     },
     async ({ service_id }, ctx) => json(await getServiceInfo(service_id, ctx.mcpReq.signal))
+  );
+
+  server.registerTool(
+    "cup24_plan_visits",
+    {
+      title: "Plan several services (e.g. a prescription)",
+      description: `Plan several services together, e.g. every line of a doctor's prescription ("impegnativa"): where and
+when to do them all with as few trips as possible.
+
+For a prescription photo or text: read every line, map each one with cup24_search, show the user the mapping and
+let them confirm it, then call this tool. Lab tests with combinable=true go in lab_ids: they are done in one blood
+draw with one combined price. Everything else goes in service_ids.
+
+Returns up to three plans without duplicates: fewest_trips (same clinic and day for as many services as possible),
+cheapest and earliest (any clinics). Each plan has total_eur, trips (clinic+day pairs), clinics, last_date and one
+visit per service with date, times, price, clinic, slot_id for cup24_get_slot_times and booking_url. Lab tests are
+usually done in separate lab branches, so a single trip for everything is rare when labs are included.
+unavailable lists services without slots; scanned says which clinic calendars were checked day by day.`,
+      inputSchema: z.strictObject({
+        service_ids: z.array(serviceId).max(8).default([]).describe("Services from cup24_search, one per prescription line"),
+        lab_ids: z.array(serviceId).max(10).default([]).describe("Lab tests from cup24_search with combinable=true"),
+        city,
+        by_date: z.iso.date().optional().describe("Latest acceptable date, YYYY-MM-DD"),
+        max_km: z.number().positive().max(200).optional().describe("Maximum distance from the city (or zone) centre"),
+        clinics: z.number().int().min(1).max(8).default(4)
+          .describe("How many clinics offering several of the services to check day by day")
+      }),
+      annotations: readOnly
+    },
+    async ({ service_ids, lab_ids, city, by_date, max_km, clinics }, ctx) => {
+      if (service_ids.length + lab_ids.length === 0) throw new Error("Pass at least one id in service_ids or lab_ids.");
+      const result = await planVisits(service_ids, lab_ids, city, clinics, { byDate: by_date, maxKm: max_km }, ctx.mcpReq.signal);
+      return json(result);
+    }
   );
 
   return server;
